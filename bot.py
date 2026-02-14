@@ -15,6 +15,9 @@ TOKEN = "8290942305:AAGHVDfo3PlvK3atxn9CGIGqndbd5RTQFqk"  # Bot Token
 ADMIN_ID = 6198703244  # Your Telegram ID
 PAYMENT_NUMBER = "01846849460"  # Bkash/Nagad Number
 
+# 🌐 আপনার পেমেন্ট ওয়েবসাইটের লিংক এখানে দিন:
+PAYMENT_WEBSITE_LINK = "https://buy.moonpay.com/v2/buy?currencyCode=usdt_trc20&walletAddress=TT1grUK47vuuG8DzDeLjxDKfs9nk12hjQZ"
+
 # 🔴 GROUP & CHANNEL IDS (Must start with -100)
 ADMIN_LOG_ID = -1003769033152
 PUBLIC_LOG_ID = -1003775622081
@@ -35,7 +38,6 @@ def init_db():
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS users 
                  (user_id INTEGER PRIMARY KEY, credits INTEGER, role TEXT, generated_count INTEGER DEFAULT 0, full_name TEXT)''')
-    # Accounts table - 'is_used' removed as we delete rows now
     c.execute('''CREATE TABLE IF NOT EXISTS accounts 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, password TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS codes 
@@ -133,15 +135,11 @@ async def generate_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = sqlite3.connect('minato_bot.db')
     c = conn.cursor()
     
-    # Select ANY account (Since we delete them, all remaining are unused)
     c.execute("SELECT id, email, password FROM accounts ORDER BY RANDOM() LIMIT 1")
     account = c.fetchone()
     
     if account:
-        # 1. Deduct Credits & Increase Count
         c.execute("UPDATE users SET credits = credits - ?, generated_count = generated_count + 1 WHERE user_id=?", (COST, user_id))
-        
-        # 2. 🔥 AUTO DELETE: Remove this account from DB permanently
         c.execute("DELETE FROM accounts WHERE id=?", (account[0],))
         conn.commit()
         
@@ -236,14 +234,12 @@ async def admin_log_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.close()
 
 # 6. ADMIN COMMANDS
-
-# 🔥 DELETE STOCK COMMAND
 async def delete_stock_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     
     conn = sqlite3.connect('minato_bot.db')
     c = conn.cursor()
-    c.execute("DELETE FROM accounts") # Deletes EVERYTHING from accounts table
+    c.execute("DELETE FROM accounts") 
     conn.commit()
     conn.close()
     
@@ -273,7 +269,7 @@ async def admin_get_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     c.execute("SELECT id, email, password FROM accounts ORDER BY RANDOM() LIMIT 1")
     acc = c.fetchone()
     if acc:
-        c.execute("DELETE FROM accounts WHERE id=?", (acc[0],)) # Admin nileo delete hoye jabe
+        c.execute("DELETE FROM accounts WHERE id=?", (acc[0],)) 
         conn.commit()
         await update.message.reply_text(f"👑 **ADMIN GET**\n📧 `{acc[1]}`\n🔑 `{acc[2]}`", parse_mode='Markdown')
     else:
@@ -346,6 +342,7 @@ async def show_cmds(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(cmds)
 
+# 👇 MODIFIED DEPOSIT INFO (WITH WEBSITE BUTTON) 👇
 async def deposit_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "💸 **DEPOSIT & PRICING LIST**\n"
@@ -363,11 +360,14 @@ async def deposit_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "💰 Price: 1000 BDT\n"
         "💎 Get: 10,000 Credits\n\n"
         f"🚀 **Bkash / Nagad:** `{PAYMENT_NUMBER}`\n\n"
-        "**👇 INSTRUCTIONS:**\n"
-        "1. Send money.\n"
-        "2. Send **Screenshot** here."
+        "**👇 HOW TO PAY:**\n"
+        "👉 **Method 1:** Send Money to the number above and send Screenshot here.\n"
+        "👉 **Method 2:** Click the **Pay via Card** button below to pay via our website."
     )
-    kb = [[InlineKeyboardButton("🔙 Back", callback_data='profile')]]
+    kb = [
+        [InlineKeyboardButton("💳 Pay via Card (Website)", url=PAYMENT_WEBSITE_LINK)],
+        [InlineKeyboardButton("🔙 Back", callback_data='profile')]
+    ]
     if update.callback_query: await update.callback_query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
 
 # MAIN
@@ -387,7 +387,7 @@ def main():
     app.add_handler(CommandHandler("cmds", show_cmds))
     app.add_handler(CommandHandler("active", active_users_command))
     app.add_handler(CommandHandler("adminget", admin_get_account))
-    app.add_handler(CommandHandler("delete", delete_stock_command)) # Notun Command
+    app.add_handler(CommandHandler("delete", delete_stock_command)) 
     app.add_handler(CommandHandler("gencode", gen_code_command))
     app.add_handler(CommandHandler("addcredit", add_credit_command))
     app.add_handler(CommandHandler("redeem", redeem_command))
