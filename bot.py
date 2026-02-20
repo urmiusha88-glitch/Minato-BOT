@@ -1,19 +1,21 @@
 import logging
-import sqlite3
+import psycopg2
 import random
 import string
 import os
 import re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
-from telegram.error import BadRequest
 
 # ======================================================
 # 👇 CONFIGURATION SECTION (MUST EDIT THIS)
 # ======================================================
-TOKEN = "8290942305:AAGHVDfo3PlvK3atxn9CGIGqndbd5RTQFqk"  # Bot Token (Make sure to use your new working token)
+TOKEN = "8290942305:AAGHVDfo3PlvK3atxn9CGIGqndbd5RTQFqk"  # Bot Token
 ADMIN_ID = 6198703244  # Your Telegram ID (MAIN OWNER)
 PAYMENT_NUMBER = "01846849460"  # Bkash/Nagad Number
+
+# 🗄️ DATABASE URL (RAILWAY POSTGRESQL LINK)
+DB_URL = "postgresql://postgres:cIJaXIJvmBepjzPcXskiJgFPwvkLdlEA@maglev.proxy.rlwy.net:22522/railway"
 
 # 🔴 GROUP & CHANNEL IDS (Must start with -100)
 ADMIN_LOG_ID = -1003769033152
@@ -27,26 +29,24 @@ FB_ID_LINK ="https://www.facebook.com/yours.ononto"
 FB_PAGE_LINK = "https://www.facebook.com/toxicnaaa69"
 # ======================================================
 
-# 💾 DATABASE PATH LOGIC (Railway Permanent Storage Support)
-if os.path.exists('/data'):
-    DB_PATH = '/data/minato_bot.db'
-else:
-    DB_PATH = 'minato_bot.db'
-
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-# --- DATABASE ---
+# --- DATABASE CONNECTION HELPER ---
+def get_db_connection():
+    return psycopg2.connect(DB_URL)
+
+# --- INIT DATABASE ---
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS users 
-                 (user_id INTEGER PRIMARY KEY, credits INTEGER, role TEXT, generated_count INTEGER DEFAULT 0, full_name TEXT)''')
+                 (user_id BIGINT PRIMARY KEY, credits INTEGER, role TEXT, generated_count INTEGER DEFAULT 0, full_name TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS ccs 
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT, cc_info TEXT)''')
+                 (id SERIAL PRIMARY KEY, cc_info TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS codes 
                  (code TEXT PRIMARY KEY, credit_amount INTEGER, role_reward TEXT, is_redeemed INTEGER)''')
     c.execute('''CREATE TABLE IF NOT EXISTS admins 
-                 (admin_id INTEGER PRIMARY KEY)''')
+                 (admin_id BIGINT PRIMARY KEY)''')
     conn.commit()
     conn.close()
 
@@ -56,24 +56,25 @@ init_db()
 def is_admin(user_id):
     if user_id == ADMIN_ID:
         return True
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     c = conn.cursor()
-    res = c.execute("SELECT * FROM admins WHERE admin_id=?", (user_id,)).fetchone()
+    c.execute("SELECT * FROM admins WHERE admin_id=%s", (user_id,))
+    res = c.fetchone()
     conn.close()
     return bool(res)
 
 def get_user(user_id, first_name="Unknown"):
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     c = conn.cursor()
-    c.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
+    c.execute("SELECT * FROM users WHERE user_id=%s", (user_id,))
     user = c.fetchone()
     if not user:
-        c.execute("INSERT INTO users (user_id, credits, role, generated_count, full_name) VALUES (?, ?, ?, 0, ?)", (user_id, 0, 'Free', first_name))
+        c.execute("INSERT INTO users (user_id, credits, role, generated_count, full_name) VALUES (%s, %s, %s, 0, %s)", (user_id, 0, 'Free', first_name))
         conn.commit()
         user = (user_id, 0, 'Free', 0, first_name)
     else:
         if first_name != "Unknown":
-            c.execute("UPDATE users SET full_name=? WHERE user_id=?", (first_name, user_id))
+            c.execute("UPDATE users SET full_name=%s WHERE user_id=%s", (first_name, user_id))
             conn.commit()
     conn.close()
     return user
@@ -140,21 +141,21 @@ async def generate_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     db_user = get_user(user_id)
-    COST = 200  # Cost per CC is 200 Credits
+    COST = 200  
     
     if db_user[1] < COST:
         await query.answer(f"❌ Low Balance! Need {COST} Credits.", show_alert=True)
         return
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     c = conn.cursor()
     
     c.execute("SELECT id, cc_info FROM ccs ORDER BY RANDOM() LIMIT 1")
     account = c.fetchone()
     
     if account:
-        c.execute("UPDATE users SET credits = credits - ?, generated_count = generated_count + 1 WHERE user_id=?", (COST, user_id))
-        c.execute("DELETE FROM ccs WHERE id=?", (account[0],))
+        c.execute("UPDATE users SET credits = credits - %s, generated_count = generated_count + 1 WHERE user_id=%s", (COST, user_id))
+        c.execute("DELETE FROM ccs WHERE id=%s", (account[0],))
         conn.commit()
         
         response_text = (
@@ -175,8 +176,9 @@ async def feedback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
     if data == 'fb_working':
-        await query.answer("❤️ Thanks!")
-        await query.message.edit_text("✅ **Enjoy your card!**", parse_mode='Markdown')
+        await query.answer("❤️ Awesome!")
+        context.user_data['waiting_for_proof'] = 'hit_proof'
+        await query.message.edit_text("✅ **WORKING!**\n🔥 Please send a screenshot of your hit/success now.", parse_mode='Markdown')
     elif data == 'fb_not_working':
         await query.answer()
         context.user_data['waiting_for_proof'] = 'report'
@@ -189,15 +191,27 @@ async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     state = context.user_data.get('waiting_for_proof')
     user_link = f"[{user.first_name}](tg://user?id={user.id})"
     
-    caption = ""
-    keyboard = []
-    
     if state == 'report':
         caption = f"🚨 **REPORT**\n👤 From: {user_link}\n⚠️ Issue: CC Not Working."
         keyboard = [[InlineKeyboardButton(f"♻️ Refund 200 Cr", callback_data=f"refund_{user.id}")], [InlineKeyboardButton("❌ Reject", callback_data="reject_action")]]
-        await update.message.reply_text("✅ Report Sent.")
+        await update.message.reply_text("✅ Report Sent to Admin.")
         context.user_data['waiting_for_proof'] = None
+        try: 
+            await context.bot.send_photo(chat_id=ADMIN_LOG_ID, photo=photo, caption=caption, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        except Exception as e: 
+            await update.message.reply_text(f"⚠️ Log Error: {e}")
+            
+    elif state == 'hit_proof':
+        caption = f"🔥 **SUCCESSFUL HIT!**\n👤 By: {user_link}\n✅ CC is working perfectly!"
+        await update.message.reply_text("❤️ Thanks for sharing your hit!")
+        context.user_data['waiting_for_proof'] = None
+        try: 
+            await context.bot.send_photo(chat_id=PUBLIC_LOG_ID, photo=photo, caption=caption, parse_mode='Markdown')
+        except Exception as e: 
+            pass 
+            
     else:
+        # Default is Deposit Proof
         caption = f"💰 **DEPOSIT**\n👤 From: {user_link}\nℹ️ Verify TrxID & Approve:"
         keyboard = [
             [InlineKeyboardButton("Starter (200 Cr)", callback_data=f"pay_{user.id}_200_Starter")],
@@ -207,22 +221,23 @@ async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("Max (10000 Cr)", callback_data=f"pay_{user.id}_10000_Max")],
             [InlineKeyboardButton("❌ Reject", callback_data="reject_action")]
         ]
-        await update.message.reply_text("✅ Proof Received.")
-
-    try: await context.bot.send_photo(chat_id=ADMIN_LOG_ID, photo=photo, caption=caption, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-    except Exception as e: await update.message.reply_text(f"⚠️ Log Error: {e}")
+        await update.message.reply_text("✅ Proof Received. Wait for Admin Approval.")
+        try: 
+            await context.bot.send_photo(chat_id=ADMIN_LOG_ID, photo=photo, caption=caption, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        except Exception as e: 
+            await update.message.reply_text(f"⚠️ Log Error: {e}")
 
 # 5. ADMIN ACTIONS
 async def admin_log_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if not is_admin(query.from_user.id): return
     data = query.data
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     c = conn.cursor()
 
     if data.startswith("refund_"):
         target_id = int(data.split("_")[1])
-        c.execute("UPDATE users SET credits = credits + 200 WHERE user_id=?", (target_id,))
+        c.execute("UPDATE users SET credits = credits + 200 WHERE user_id=%s", (target_id,))
         conn.commit()
         await query.answer("✅ Refunded!")
         await query.message.edit_caption(caption=query.message.caption + "\n\n✅ **REFUNDED (200 Cr)**")
@@ -232,7 +247,7 @@ async def admin_log_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("pay_"):
         parts = data.split("_")
         target_id, amount, plan = int(parts[1]), int(parts[2]), parts[3]
-        c.execute("UPDATE users SET credits = credits + ?, role = ? WHERE user_id=?", (amount, plan, target_id))
+        c.execute("UPDATE users SET credits = credits + %s, role = %s WHERE user_id=%s", (amount, plan, target_id))
         conn.commit()
         await query.answer(f"✅ Approved {plan}!")
         await query.message.edit_caption(caption=query.message.caption + f"\n\n✅ **APPROVED: {plan}**")
@@ -251,9 +266,9 @@ async def add_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return 
     try:
         new_admin = int(context.args[0])
-        conn = sqlite3.connect(DB_PATH)
+        conn = get_db_connection()
         c = conn.cursor()
-        c.execute("INSERT OR IGNORE INTO admins (admin_id) VALUES (?)", (new_admin,))
+        c.execute("INSERT INTO admins (admin_id) VALUES (%s) ON CONFLICT (admin_id) DO NOTHING", (new_admin,))
         conn.commit()
         conn.close()
         await update.message.reply_text(f"✅ User `{new_admin}` is now an Admin!", parse_mode='Markdown')
@@ -267,9 +282,9 @@ async def add_cc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     cc_data = " ".join(context.args)
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     c = conn.cursor()
-    c.execute("INSERT INTO ccs (cc_info) VALUES (?)", (cc_data,))
+    c.execute("INSERT INTO ccs (cc_info) VALUES (%s)", (cc_data,))
     conn.commit()
     conn.close()
     
@@ -278,7 +293,7 @@ async def add_cc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def delete_stock_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id): return
     
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     c = conn.cursor()
     c.execute("DELETE FROM ccs") 
     conn.commit()
@@ -288,7 +303,7 @@ async def delete_stock_command(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def active_users_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id): return
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     c = conn.cursor()
     c.execute("SELECT full_name, user_id, credits, generated_count FROM users ORDER BY generated_count DESC LIMIT 10")
     users = c.fetchall()
@@ -305,12 +320,12 @@ async def active_users_command(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def admin_get_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id): return
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     c = conn.cursor()
     c.execute("SELECT id, cc_info FROM ccs ORDER BY RANDOM() LIMIT 1")
     acc = c.fetchone()
     if acc:
-        c.execute("DELETE FROM ccs WHERE id=?", (acc[0],)) 
+        c.execute("DELETE FROM ccs WHERE id=%s", (acc[0],)) 
         conn.commit()
         await update.message.reply_text(f"👑 **ADMIN GET**\n💳 `{acc[1]}`", parse_mode='Markdown')
     else:
@@ -324,7 +339,7 @@ async def upload_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         file = await update.message.document.get_file()
         await file.download_to_drive("stock.txt")
-        conn = sqlite3.connect(DB_PATH)
+        conn = get_db_connection()
         c = conn.cursor()
         count = 0
         
@@ -332,7 +347,7 @@ async def upload_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         with open("stock.txt", 'r', encoding='utf-8', errors='ignore') as f:
             for cc in pattern.findall(f.read()):
-                c.execute("INSERT INTO ccs (cc_info) VALUES (?)", (cc,))
+                c.execute("INSERT INTO ccs (cc_info) VALUES (%s)", (cc,))
                 count += 1
                 
         conn.commit(); conn.close(); os.remove("stock.txt")
@@ -345,7 +360,11 @@ async def gen_code_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         amt = int(context.args[0])
         role = context.args[1].upper() if len(context.args) > 1 else "PREMIUM"
         code = generate_minato_code(role)
-        sqlite3.connect(DB_PATH).cursor().execute("INSERT INTO codes VALUES (?,?,?,0)", (code, amt, role)).connection.commit()
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("INSERT INTO codes (code, credit_amount, role_reward, is_redeemed) VALUES (%s,%s,%s,0)", (code, amt, role))
+        conn.commit()
+        conn.close()
         await update.message.reply_text(f"`{code}`")
     except: pass
 
@@ -353,18 +372,24 @@ async def add_credit_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not is_admin(update.effective_user.id): return
     try:
         tid, amt = int(context.args[0]), int(context.args[1])
-        sqlite3.connect(DB_PATH).cursor().execute("UPDATE users SET credits=credits+? WHERE user_id=?", (amt, tid)).connection.commit()
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("UPDATE users SET credits=credits+%s WHERE user_id=%s", (amt, tid))
+        conn.commit()
+        conn.close()
         await update.message.reply_text("✅ Done")
     except: pass
 
 async def redeem_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         code = context.args[0].strip(); uid = update.effective_user.id
-        conn = sqlite3.connect(DB_PATH); c = conn.cursor()
-        res = c.execute("SELECT * FROM codes WHERE code=? AND is_redeemed=0", (code,)).fetchone()
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("SELECT * FROM codes WHERE code=%s AND is_redeemed=0", (code,))
+        res = c.fetchone()
         if res:
-            c.execute("UPDATE codes SET is_redeemed=1 WHERE code=?", (code,))
-            c.execute("UPDATE users SET credits=credits+?, role=? WHERE user_id=?", (res[1], res[2], uid))
+            c.execute("UPDATE codes SET is_redeemed=1 WHERE code=%s", (code,))
+            c.execute("UPDATE users SET credits=credits+%s, role=%s WHERE user_id=%s", (res[1], res[2], uid))
             conn.commit()
             await update.message.reply_text(f"✅ Redeemed {res[1]} Cr!")
             try: await context.bot.send_message(PUBLIC_LOG_ID, f"⚡ **REDEEMED!**\n👤 User: `{uid}`\n💎 Role: `{res[2]}`", parse_mode='Markdown')
@@ -425,7 +450,7 @@ async def btn_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif q.data == 'redeem_btn': await q.answer(); await q.message.reply_text("Type `/redeem CODE`")
 
 def main():
-    print("🤖 MINATO Bot Started...")
+    print("🤖 MINATO Bot Started with PostgreSQL...")
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("cmds", show_cmds))
