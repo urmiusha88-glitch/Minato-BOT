@@ -12,11 +12,8 @@ from telegram.error import BadRequest
 # 👇 CONFIGURATION SECTION (MUST EDIT THIS)
 # ======================================================
 TOKEN = "8290942305:AAGHVDfo3PlvK3atxn9CGIGqndbd5RTQFqk"  # Bot Token
-ADMIN_ID = 6198703244  # Your Telegram ID
+ADMIN_ID = 6198703244  # Your Telegram ID (MAIN OWNER)
 PAYMENT_NUMBER = "01846849460"  # Bkash/Nagad Number
-
-# 🌐 আপনার পেমেন্ট ওয়েবসাইটের লিংক এখানে দিন:
-PAYMENT_WEBSITE_LINK = "https://buy.moonpay.com/v2/buy?currencyCode=usdt_trc20&walletAddress=TT1grUK47vuuG8DzDeLjxDKfs9nk12hjQZ"
 
 # 🔴 GROUP & CHANNEL IDS (Must start with -100)
 ADMIN_LOG_ID = -1003769033152
@@ -38,16 +35,27 @@ def init_db():
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS users 
                  (user_id INTEGER PRIMARY KEY, credits INTEGER, role TEXT, generated_count INTEGER DEFAULT 0, full_name TEXT)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS accounts 
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, password TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS ccs 
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT, cc_info TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS codes 
                  (code TEXT PRIMARY KEY, credit_amount INTEGER, role_reward TEXT, is_redeemed INTEGER)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS admins 
+                 (admin_id INTEGER PRIMARY KEY)''')
     conn.commit()
     conn.close()
 
 init_db()
 
 # --- HELPER ---
+def is_admin(user_id):
+    if user_id == ADMIN_ID:
+        return True
+    conn = sqlite3.connect('minato_bot.db')
+    c = conn.cursor()
+    res = c.execute("SELECT * FROM admins WHERE admin_id=?", (user_id,)).fetchone()
+    conn.close()
+    return bool(res)
+
 def get_user(user_id, first_name="Unknown"):
     conn = sqlite3.connect('minato_bot.db')
     c = conn.cursor()
@@ -91,7 +99,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db_user = get_user(user.id, user.first_name)
     
     welcome_text = (
-        f"🌟 **WELCOME TO MINATO SERVICES** 🌟\n"
+        f"🌟 **WELCOME TO MINATO CC SERVICES** 🌟\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"👋 **Hi, {user.first_name}**\n\n"
         f"💎 **Credits:** `{db_user[1]}`\n"
@@ -99,13 +107,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📦 **Generated:** `{db_user[3]}`\n"
         f"🆔 **Account ID:** `{user.id}`\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"⚡ _Premium Accounts at Cheapest Rate!_\n\n"
+        f"⚡ _Premium CCs at Cheapest Rate!_\n\n"
         f"👨‍💻 **Developer:** [Ononto Hasan]({FB_ID_LINK})\n"
         f"📢 **Page:** [Official Page]({FB_PAGE_LINK})"
     )
     
     keyboard = [
-        [InlineKeyboardButton("🎁 Generate Account", callback_data='gen_acc')],
+        [InlineKeyboardButton("💳 Generate CC", callback_data='gen_acc')],
         [InlineKeyboardButton("💸 Deposit / Buy", callback_data='deposit_info')],
         [InlineKeyboardButton("👤 My Profile", callback_data='profile'), InlineKeyboardButton("💎 Redeem Code", callback_data='redeem_btn')],
         [InlineKeyboardButton("📞 Contact Admin", url=FB_ID_LINK)] 
@@ -116,7 +124,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try: await update.callback_query.message.edit_text(welcome_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         except: pass
 
-# 2. GENERATE ACCOUNT (AUTO DELETE FEATURE)
+# 2. GENERATE CC
 async def generate_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -126,7 +134,7 @@ async def generate_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     db_user = get_user(user_id)
-    COST = 100
+    COST = 200  # <--- Changed cost to 200 Credits
     
     if db_user[1] < COST:
         await query.answer(f"❌ Low Balance! Need {COST} Credits.", show_alert=True)
@@ -135,19 +143,19 @@ async def generate_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = sqlite3.connect('minato_bot.db')
     c = conn.cursor()
     
-    c.execute("SELECT id, email, password FROM accounts ORDER BY RANDOM() LIMIT 1")
+    c.execute("SELECT id, cc_info FROM ccs ORDER BY RANDOM() LIMIT 1")
     account = c.fetchone()
     
     if account:
         c.execute("UPDATE users SET credits = credits - ?, generated_count = generated_count + 1 WHERE user_id=?", (COST, user_id))
-        c.execute("DELETE FROM accounts WHERE id=?", (account[0],))
+        # This line ensures the CC is deleted from stock once generated
+        c.execute("DELETE FROM ccs WHERE id=?", (account[0],))
         conn.commit()
         
         response_text = (
             "✅ **SUCCESSFULLY GENERATED!**\n"
             "━━━━━━━━━━━━━━━━━━━━━\n"
-            f"📧 `{account[1]}`\n"
-            f"🔑 `{account[2]}`\n"
+            f"💳 `{account[1]}`\n"
             "━━━━━━━━━━━━━━━━━━━━━\n"
             "⚠️ *Check now! If invalid, click Not Working.*"
         )
@@ -163,7 +171,7 @@ async def feedback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     if data == 'fb_working':
         await query.answer("❤️ Thanks!")
-        await query.message.edit_text("✅ **Enjoy your account!**", parse_mode='Markdown')
+        await query.message.edit_text("✅ **Enjoy your card!**", parse_mode='Markdown')
     elif data == 'fb_not_working':
         await query.answer()
         context.user_data['waiting_for_proof'] = 'report'
@@ -180,8 +188,8 @@ async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = []
     
     if state == 'report':
-        caption = f"🚨 **REPORT**\n👤 From: {user_link}\n⚠️ Issue: Account Not Working."
-        keyboard = [[InlineKeyboardButton(f"♻️ Refund 100 Cr", callback_data=f"refund_{user.id}")], [InlineKeyboardButton("❌ Reject", callback_data="reject_action")]]
+        caption = f"🚨 **REPORT**\n👤 From: {user_link}\n⚠️ Issue: CC Not Working."
+        keyboard = [[InlineKeyboardButton(f"♻️ Refund 200 Cr", callback_data=f"refund_{user.id}")], [InlineKeyboardButton("❌ Reject", callback_data="reject_action")]]
         await update.message.reply_text("✅ Report Sent.")
         context.user_data['waiting_for_proof'] = None
     else:
@@ -202,18 +210,18 @@ async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 5. ADMIN ACTIONS
 async def admin_log_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    if query.from_user.id != ADMIN_ID: return
+    if not is_admin(query.from_user.id): return
     data = query.data
     conn = sqlite3.connect('minato_bot.db')
     c = conn.cursor()
 
     if data.startswith("refund_"):
         target_id = int(data.split("_")[1])
-        c.execute("UPDATE users SET credits = credits + 100 WHERE user_id=?", (target_id,))
+        c.execute("UPDATE users SET credits = credits + 200 WHERE user_id=?", (target_id,))
         conn.commit()
         await query.answer("✅ Refunded!")
-        await query.message.edit_caption(caption=query.message.caption + "\n\n✅ **REFUNDED**")
-        try: await context.bot.send_message(target_id, "✅ 100 Credits Refunded!")
+        await query.message.edit_caption(caption=query.message.caption + "\n\n✅ **REFUNDED (200 Cr)**")
+        try: await context.bot.send_message(target_id, "✅ 200 Credits Refunded!")
         except: pass
 
     elif data.startswith("pay_"):
@@ -234,19 +242,47 @@ async def admin_log_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.close()
 
 # 6. ADMIN COMMANDS
-async def delete_stock_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return
+async def add_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID: return 
+    try:
+        new_admin = int(context.args[0])
+        conn = sqlite3.connect('minato_bot.db')
+        c = conn.cursor()
+        c.execute("INSERT OR IGNORE INTO admins (admin_id) VALUES (?)", (new_admin,))
+        conn.commit()
+        conn.close()
+        await update.message.reply_text(f"✅ User `{new_admin}` is now an Admin!", parse_mode='Markdown')
+    except:
+        await update.message.reply_text("⚠️ Usage: `/admin <user_id>`")
+
+async def add_cc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id): return
+    if not context.args:
+        await update.message.reply_text("⚠️ Usage: `/addcc 4108940050946458|10|27|017`")
+        return
     
+    cc_data = " ".join(context.args)
     conn = sqlite3.connect('minato_bot.db')
     c = conn.cursor()
-    c.execute("DELETE FROM accounts") 
+    c.execute("INSERT INTO ccs (cc_info) VALUES (?)", (cc_data,))
     conn.commit()
     conn.close()
     
-    await update.message.reply_text("🗑️ **STOCK CLEARED!**\nAll accounts have been deleted from the database.", parse_mode='Markdown')
+    await update.message.reply_text(f"✅ CC Successfully Added:\n💳 `{cc_data}`", parse_mode='Markdown')
+
+async def delete_stock_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id): return
+    
+    conn = sqlite3.connect('minato_bot.db')
+    c = conn.cursor()
+    c.execute("DELETE FROM ccs") 
+    conn.commit()
+    conn.close()
+    
+    await update.message.reply_text("🗑️ **STOCK CLEARED!**\nAll CCs have been deleted from the database.", parse_mode='Markdown')
 
 async def active_users_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return
+    if not is_admin(update.effective_user.id): return
     conn = sqlite3.connect('minato_bot.db')
     c = conn.cursor()
     c.execute("SELECT full_name, user_id, credits, generated_count FROM users ORDER BY generated_count DESC LIMIT 10")
@@ -263,40 +299,43 @@ async def active_users_command(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text(msg, parse_mode='Markdown')
 
 async def admin_get_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return
+    if not is_admin(update.effective_user.id): return
     conn = sqlite3.connect('minato_bot.db')
     c = conn.cursor()
-    c.execute("SELECT id, email, password FROM accounts ORDER BY RANDOM() LIMIT 1")
+    c.execute("SELECT id, cc_info FROM ccs ORDER BY RANDOM() LIMIT 1")
     acc = c.fetchone()
     if acc:
-        c.execute("DELETE FROM accounts WHERE id=?", (acc[0],)) 
+        c.execute("DELETE FROM ccs WHERE id=?", (acc[0],)) 
         conn.commit()
-        await update.message.reply_text(f"👑 **ADMIN GET**\n📧 `{acc[1]}`\n🔑 `{acc[2]}`", parse_mode='Markdown')
+        await update.message.reply_text(f"👑 **ADMIN GET**\n💳 `{acc[1]}`", parse_mode='Markdown')
     else:
         await update.message.reply_text("❌ Stock Empty!")
     conn.close()
 
 # 7. OTHER COMMANDS
 async def upload_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return
-    msg = await update.message.reply_text("⏳ Scanning...")
+    if not is_admin(update.effective_user.id): return
+    msg = await update.message.reply_text("⏳ Scanning CCs...")
     try:
         file = await update.message.document.get_file()
         await file.download_to_drive("stock.txt")
         conn = sqlite3.connect('minato_bot.db')
         c = conn.cursor()
         count = 0
-        pattern = re.compile(r'([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+):([^\s]+)')
+        
+        pattern = re.compile(r'(\d{15,16}[|]\d{1,2}[|]\d{2,4}[|]\d{3,4})')
+        
         with open("stock.txt", 'r', encoding='utf-8', errors='ignore') as f:
-            for email, password in pattern.findall(f.read()):
-                c.execute("INSERT INTO accounts (email, password) VALUES (?, ?)", (email, password))
+            for cc in pattern.findall(f.read()):
+                c.execute("INSERT INTO ccs (cc_info) VALUES (?)", (cc,))
                 count += 1
+                
         conn.commit(); conn.close(); os.remove("stock.txt")
-        await msg.edit_text(f"✅ Added {count} accounts.")
+        await msg.edit_text(f"✅ Added {count} CCs to stock.")
     except Exception as e: await msg.edit_text(f"❌ Error: {e}")
 
 async def gen_code_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return
+    if not is_admin(update.effective_user.id): return
     try:
         amt = int(context.args[0])
         role = context.args[1].upper() if len(context.args) > 1 else "PREMIUM"
@@ -306,7 +345,7 @@ async def gen_code_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except: pass
 
 async def add_credit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return
+    if not is_admin(update.effective_user.id): return
     try:
         tid, amt = int(context.args[0]), int(context.args[1])
         sqlite3.connect('minato_bot.db').cursor().execute("UPDATE users SET credits=credits+? WHERE user_id=?", (amt, tid)).connection.commit()
@@ -330,19 +369,21 @@ async def redeem_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except: await update.message.reply_text("Usage: `/redeem CODE`")
 
 async def show_cmds(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return
+    if not is_admin(update.effective_user.id): return
     cmds = (
         "🛠 **ADMIN COMMANDS**\n"
-        "1. `/active` - Clickable User List\n"
-        "2. `/adminget` - Free Account\n"
-        "3. `/delete` - Clear ALL Stock (NEW)\n"
-        "4. `/gencode <amt> <role>`\n"
-        "5. `/addcredit <id> <amt>`\n"
-        "6. Upload .txt File"
+        "1. `/addcc <card_details>` - Add single CC\n"
+        "2. `/admin <id>` - Add new Admin (Owner Only)\n"
+        "3. `/active` - Clickable User List\n"
+        "4. `/adminget` - Free CC\n"
+        "5. `/delete` - Clear ALL Stock\n"
+        "6. `/gencode <amt> <role>`\n"
+        "7. `/addcredit <id> <amt>`\n"
+        "8. Upload `.txt` File with CCs to auto-add"
     )
     await update.message.reply_text(cmds)
 
-# 👇 MODIFIED DEPOSIT INFO (WITH WEBSITE BUTTON) 👇
+# 👇 MODIFIED DEPOSIT INFO (Removed Card Payment) 👇
 async def deposit_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "💸 **DEPOSIT & PRICING LIST**\n"
@@ -361,11 +402,9 @@ async def deposit_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "💎 Get: 10,000 Credits\n\n"
         f"🚀 **Bkash / Nagad:** `{PAYMENT_NUMBER}`\n\n"
         "**👇 HOW TO PAY:**\n"
-        "👉 **Method 1:** Send Money to the number above and send Screenshot here.\n"
-        "👉 **Method 2:** Click the **Pay via Card** button below to pay via our website."
+        "👉 Send Money to the number above and send the payment Screenshot here."
     )
     kb = [
-        [InlineKeyboardButton("💳 Pay via Card (Website)", url=PAYMENT_WEBSITE_LINK)],
         [InlineKeyboardButton("🔙 Back", callback_data='profile')]
     ]
     if update.callback_query: await update.callback_query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
@@ -391,6 +430,8 @@ def main():
     app.add_handler(CommandHandler("gencode", gen_code_command))
     app.add_handler(CommandHandler("addcredit", add_credit_command))
     app.add_handler(CommandHandler("redeem", redeem_command))
+    app.add_handler(CommandHandler("addcc", add_cc_command))
+    app.add_handler(CommandHandler("admin", add_admin_command))
     app.add_handler(MessageHandler(filters.Document.MimeType("text/plain"), upload_file))
     app.add_handler(MessageHandler(filters.PHOTO, handle_screenshot))
     app.add_handler(CallbackQueryHandler(btn_handler))
