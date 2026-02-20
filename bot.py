@@ -4,13 +4,15 @@ import random
 import string
 import os
 import re
+import httpx
+from faker import Faker
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
 
 # ======================================================
 # 👇 CONFIGURATION SECTION (MUST EDIT THIS)
 # ======================================================
-TOKEN = "8290942305:AAGB70nqTwvapZIaBCeXxIwnwUnGpq_ccHc"  # ⚠️ এখানে BotFather থেকে পাওয়া নতুন টোকেনটি বসান
+TOKEN = "8290942305:AAGB70nqTwvapZIaBCeXxIwnwUnGpq_ccHc"  # ⚠️ ekhane BotFather theke pawa notun token ti boshan
 ADMIN_ID = 6198703244  # Your Telegram ID (MAIN OWNER)
 PAYMENT_NUMBER = "01846849460"  # Bkash/Nagad Number
 
@@ -21,7 +23,7 @@ DB_URL = "postgresql://postgres:cIJaXIJvmBepjzPcXskiJgFPwvkLdlEA@maglev.proxy.rl
 ADMIN_LOG_ID = -1003769033152
 PUBLIC_LOG_ID = -1003775622081
 
-# ⚠️ Force Join Channel (বটকে অবশ্যই এই চ্যানেলে এডমিন বানাতে হবে)
+# ⚠️ Force Join Channel (Bot ke obosshoi ei channel e admin banate hobe)
 CHANNEL_ID = "@minatologs"
 CHANNEL_INVITE_LINK = "https://t.me/minatologs/2"
 
@@ -42,7 +44,6 @@ def init_db():
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS users 
                  (user_id BIGINT PRIMARY KEY, credits INTEGER, role TEXT, generated_count INTEGER DEFAULT 0, full_name TEXT)''')
-    # Normal and HQ CC Tables
     c.execute('''CREATE TABLE IF NOT EXISTS ccs_normal 
                  (id SERIAL PRIMARY KEY, cc_info TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS ccs_hq 
@@ -56,7 +57,7 @@ def init_db():
 
 init_db()
 
-# --- HELPER ---
+# --- HELPER FUNCTIONS ---
 def is_admin(user_id):
     if user_id == ADMIN_ID:
         return True
@@ -94,7 +95,33 @@ async def check_join(user_id, context):
         if member.status in ['left', 'kicked']: return False
         return True
     except: 
-        return True # If bot is not admin, it lets people pass to prevent breaking
+        return True 
+
+# 👉 NEW: IDENTITY GENERATOR HELPER (Detailed Breakdown)
+def generate_fake_identity(country_code):
+    try:
+        fake = Faker(f"en_{country_code.upper()}")
+    except:
+        try:
+            fake = Faker(f"{country_code.lower()}_{country_code.upper()}")
+        except:
+            fake = Faker('en_US')
+            
+    # Not all locales have 'state', so we handle it safely
+    try:
+        state = fake.state()
+    except:
+        state = fake.city()
+
+    return {
+        "name": fake.name(),
+        "street": fake.street_address(),
+        "city": fake.city(),
+        "state": state,
+        "zipcode": fake.postcode(),
+        "phone": fake.phone_number(),
+        "ip": fake.ipv4_public()
+    }
 
 # --- HANDLERS ---
 
@@ -129,7 +156,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("💎 Gen HQ CC (250 Cr)", callback_data='gen_hq')],
         [InlineKeyboardButton("💸 Deposit / Buy", callback_data='deposit_info')],
         [InlineKeyboardButton("👤 My Profile", callback_data='profile'), InlineKeyboardButton("🎁 Redeem Code", callback_data='redeem_btn')],
-        [InlineKeyboardButton("📞 Contact Admin", url=FB_ID_LINK)] 
+        [InlineKeyboardButton("📞 Contact Admin", url=f"tg://user?id={ADMIN_ID}")] 
     ]
     
     if update.message: await update.message.reply_text(welcome_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
@@ -137,7 +164,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try: await update.callback_query.message.edit_text(welcome_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         except: pass
 
-# 2. GENERATE CC
+# 2. GENERATE CC WITH FULL IDENTITY
 async def generate_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -175,14 +202,49 @@ async def generate_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
         c.execute(f"DELETE FROM {table} WHERE id=%s", (account[0],))
         conn.commit()
         
+        # 👉 Extract CC and BIN
+        cc_full_text = account[1]
+        cc_number = cc_full_text.split('|')[0]
+        bin_num = cc_number[:6]
+        
+        await query.message.edit_text(f"⏳ **Generating {q_text} CC... Checking BIN & Identity...**", parse_mode='Markdown')
+        
+        # 👉 Fetch BIN Info & Bank
+        bank_name = "Unknown Bank"
+        country_name = "United States"
+        country_code = "US"
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(f"https://lookup.binlist.net/{bin_num}", timeout=5.0)
+                if resp.status_code == 200:
+                    bin_data = resp.json()
+                    bank_name = bin_data.get("bank", {}).get("name", "Unknown Bank")
+                    country_name = bin_data.get("country", {}).get("name", "United States")
+                    country_code = bin_data.get("country", {}).get("alpha2", "US")
+        except:
+            pass # Fallback to default if API fails
+            
+        # 👉 Generate localized Address & Name (Detailed)
+        identity = generate_fake_identity(country_code)
+        
         response_text = (
             f"✅ **SUCCESSFULLY GENERATED {q_text} CC!**\n"
             "━━━━━━━━━━━━━━━━━━━━━\n"
-            f"💳 `{account[1]}`\n"
+            f"💳 `{cc_full_text}`\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🏦 **Bank:** `{bank_name}`\n"
+            f"🌍 **Country:** `{country_name} ({country_code})`\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 **Name:** `{identity['name']}`\n"
+            f"📍 **Street:** `{identity['street']}`\n"
+            f"🏙 **City/State:** `{identity['city']}, {identity['state']}`\n"
+            f"📮 **Zipcode:** `{identity['zipcode']}`\n"
+            f"📞 **Phone:** `{identity['phone']}`\n"
+            f"🌐 **IP Address:** `{identity['ip']}`\n"
             "━━━━━━━━━━━━━━━━━━━━━\n"
             "⚠️ *Check now! If invalid, click Not Working.*"
         )
-        # Pass the cost so refund knows how much to refund
         keyboard = [[InlineKeyboardButton("✅ Working", callback_data='fb_working'), InlineKeyboardButton("❌ Not Working", callback_data=f'fb_not_working_{COST}')]]
         await query.message.edit_text(response_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
     else:
@@ -473,6 +535,23 @@ async def show_cmds(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(cmds)
 
+# 👇 USER HELP COMMAND 👇
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    help_text = (
+        "🛠 **USER COMMANDS & HELP**\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "🔹 `/start` - Open the main menu\n"
+        "🔹 `/help` - Show this help message\n"
+        "🔹 `/redeem <code>` - Redeem a credit code\n\n"
+        "💡 **How to use:**\n"
+        "1. Use /start to open the menu.\n"
+        "2. Click 'Deposit / Buy' to check packages and pay.\n"
+        "3. Click 'Gen Normal CC' or 'Gen HQ CC' to get cards.\n\n"
+        f"👨‍💻 **Contact Admin:** [Ononto Hasan](tg://user?id={ADMIN_ID})\n"
+        f"🌐 **Facebook:** [Official Profile]({FB_ID_LINK})"
+    )
+    await update.message.reply_text(help_text, parse_mode='Markdown')
+
 # 👇 DEPOSIT INFO 👇
 async def deposit_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
@@ -514,6 +593,7 @@ def main():
     print("🤖 MINATO Bot Started with PostgreSQL...")
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command)) 
     app.add_handler(CommandHandler("cmds", show_cmds))
     app.add_handler(CommandHandler("active", active_users_command))
     app.add_handler(CommandHandler("adminget", admin_get_account))
