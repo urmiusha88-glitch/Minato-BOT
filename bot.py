@@ -12,9 +12,12 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 # ======================================================
 # 👇 CONFIGURATION SECTION (MUST EDIT THIS)
 # ======================================================
-TOKEN = "8290942305:AAGB70nqTwvapZIaBCeXxIwnwUnGpq_ccHc"  # ⚠️ ekhane BotFather theke pawa notun token ti boshan
+TOKEN = "8290942305:AAGB70nqTwvapZIaBCeXxIwnwUnGpq_ccHc"  # ⚠️ এখানে BotFather থেকে পাওয়া নতুন টোকেনটি বসান
 ADMIN_ID = 6198703244  # Your Telegram ID (MAIN OWNER)
+
+# 💰 PAYMENT DETAILS
 PAYMENT_NUMBER = "01846849460"  # Bkash/Nagad Number
+BINANCE_PAY_ID = "1016246479"  # Binance Pay ID বা Email
 
 # 🗄️ DATABASE URL (RAILWAY POSTGRESQL LINK)
 DB_URL = "postgresql://postgres:cIJaXIJvmBepjzPcXskiJgFPwvkLdlEA@maglev.proxy.rlwy.net:22522/railway"
@@ -23,7 +26,7 @@ DB_URL = "postgresql://postgres:cIJaXIJvmBepjzPcXskiJgFPwvkLdlEA@maglev.proxy.rl
 ADMIN_LOG_ID = -1003769033152
 PUBLIC_LOG_ID = -1003775622081
 
-# ⚠️ Force Join Channel (Bot ke obosshoi ei channel e admin banate hobe)
+# ⚠️ Force Join Channel (বটকে অবশ্যই এই চ্যানেলে এডমিন বানাতে হবে)
 CHANNEL_ID = "@minatologs"
 CHANNEL_INVITE_LINK = "https://t.me/minatologs/2"
 
@@ -97,7 +100,7 @@ async def check_join(user_id, context):
     except: 
         return True 
 
-# 👉 NEW: IDENTITY GENERATOR HELPER (Detailed Breakdown)
+# 👉 IDENTITY GENERATOR HELPER
 def generate_fake_identity(country_code):
     try:
         fake = Faker(f"en_{country_code.upper()}")
@@ -107,7 +110,6 @@ def generate_fake_identity(country_code):
         except:
             fake = Faker('en_US')
             
-    # Not all locales have 'state', so we handle it safely
     try:
         state = fake.state()
     except:
@@ -202,14 +204,12 @@ async def generate_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
         c.execute(f"DELETE FROM {table} WHERE id=%s", (account[0],))
         conn.commit()
         
-        # 👉 Extract CC and BIN
         cc_full_text = account[1]
         cc_number = cc_full_text.split('|')[0]
         bin_num = cc_number[:6]
         
         await query.message.edit_text(f"⏳ **Generating {q_text} CC... Checking BIN & Identity...**", parse_mode='Markdown')
         
-        # 👉 Fetch BIN Info & Bank
         bank_name = "Unknown Bank"
         country_name = "United States"
         country_code = "US"
@@ -223,9 +223,8 @@ async def generate_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     country_name = bin_data.get("country", {}).get("name", "United States")
                     country_code = bin_data.get("country", {}).get("alpha2", "US")
         except:
-            pass # Fallback to default if API fails
+            pass 
             
-        # 👉 Generate localized Address & Name (Detailed)
         identity = generate_fake_identity(country_code)
         
         response_text = (
@@ -552,26 +551,28 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(help_text, parse_mode='Markdown')
 
-# 👇 DEPOSIT INFO 👇
+# 👇 MODIFIED DEPOSIT INFO 👇
 async def deposit_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "💸 **DEPOSIT & PRICING LIST**\n"
         "━━━━━━━━━━━━━━━━━━━━━\n\n"
         "🟢 **Starter Plan**\n"
-        "💰 Price: 50 BDT\n"
+        "💰 Price: 50 BDT / $0.50\n"
         "💎 Get: 200 Credits\n\n"
         "🔵 **Basic Plan**\n"
-        "💰 Price: 100 BDT\n"
+        "💰 Price: 100 BDT / $1.00\n"
         "💎 Get: 500 Credits\n\n"
         "🟣 **Pro Plan**\n"
-        "💰 Price: 300 BDT\n"
+        "💰 Price: 300 BDT / $3.00\n"
         "💎 Get: 2500 Credits\n\n"
         "⚡ **Max Plan**\n"
-        "💰 Price: 1000 BDT\n"
+        "💰 Price: 1000 BDT / $10.00\n"
         "💎 Get: 10,000 Credits\n\n"
-        f"🚀 **Bkash / Nagad:** `{PAYMENT_NUMBER}`\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📱 **Bkash / Nagad:** `{PAYMENT_NUMBER}`\n"
+        f"🟡 **Binance Pay ID:** `{BINANCE_PAY_ID}`\n\n"
         "**👇 HOW TO PAY:**\n"
-        "👉 Send Money to the number above and send the payment Screenshot here."
+        "👉 Send Money/Crypto to the details above and send the payment Screenshot here."
     )
     kb = [
         [InlineKeyboardButton("🔙 Back", callback_data='profile')]
