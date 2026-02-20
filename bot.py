@@ -10,7 +10,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 # ======================================================
 # 👇 CONFIGURATION SECTION (MUST EDIT THIS)
 # ======================================================
-TOKEN = "8290942305:AAGHVDfo3PlvK3atxn9CGIGqndbd5RTQFqk"  # Bot Token
+TOKEN = "8290942305:AAGB70nqTwvapZIaBCeXxIwnwUnGpq_ccHc"  # Bot Token
 ADMIN_ID = 6198703244  # Your Telegram ID (MAIN OWNER)
 PAYMENT_NUMBER = "01846849460"  # Bkash/Nagad Number
 
@@ -469,3 +469,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
