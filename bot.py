@@ -10,20 +10,21 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 # ======================================================
 # 👇 CONFIGURATION SECTION (MUST EDIT THIS)
 # ======================================================
-TOKEN = "8290942305:AAGB70nqTwvapZIaBCeXxIwnwUnGpq_ccHc"  # Bot Token
+TOKEN = "8290942305:AAGB70nqTwvapZIaBCeXxIwnwUnGpq_ccHc"  # ⚠️ এখানে BotFather থেকে পাওয়া নতুন টোকেনটি বসান
 ADMIN_ID = 6198703244  # Your Telegram ID (MAIN OWNER)
 PAYMENT_NUMBER = "01846849460"  # Bkash/Nagad Number
 
 # 🗄️ DATABASE URL (RAILWAY POSTGRESQL LINK)
 DB_URL = "postgresql://postgres:cIJaXIJvmBepjzPcXskiJgFPwvkLdlEA@maglev.proxy.rlwy.net:22522/railway"
 
-# 🔴 GROUP & CHANNEL IDS (Must start with -100)
+# 🔴 GROUP & CHANNEL IDS
 ADMIN_LOG_ID = -1003769033152
 PUBLIC_LOG_ID = -1003775622081
-CHANNEL_ID = -5117274883
 
-# 🔗 INVITE LINK
-CHANNEL_INVITE_LINK = "https://t.me/+cBcd9vR84Bc2OWU1"
+# ⚠️ Force Join Channel (বটকে অবশ্যই এই চ্যানেলে এডমিন বানাতে হবে)
+CHANNEL_ID = "@minatologs"
+CHANNEL_INVITE_LINK = "https://t.me/minatologs/2"
+
 # ======================================================
 FB_ID_LINK ="https://www.facebook.com/yours.ononto"
 FB_PAGE_LINK = "https://www.facebook.com/toxicnaaa69"
@@ -41,7 +42,10 @@ def init_db():
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS users 
                  (user_id BIGINT PRIMARY KEY, credits INTEGER, role TEXT, generated_count INTEGER DEFAULT 0, full_name TEXT)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS ccs 
+    # Normal and HQ CC Tables
+    c.execute('''CREATE TABLE IF NOT EXISTS ccs_normal 
+                 (id SERIAL PRIMARY KEY, cc_info TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS ccs_hq 
                  (id SERIAL PRIMARY KEY, cc_info TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS codes 
                  (code TEXT PRIMARY KEY, credit_amount INTEGER, role_reward TEXT, is_redeemed INTEGER)''')
@@ -89,7 +93,8 @@ async def check_join(user_id, context):
         member = await context.bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
         if member.status in ['left', 'kicked']: return False
         return True
-    except: return True 
+    except: 
+        return True # If bot is not admin, it lets people pass to prevent breaking
 
 # --- HANDLERS ---
 
@@ -98,8 +103,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not await check_join(user.id, context):
         await update.message.reply_text(
-            f"❌ **ACCESS DENIED**\n\n⚠️ You must join our channel first.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Join Channel", url=CHANNEL_INVITE_LINK)]])
+            f"❌ **ACCESS DENIED**\n\n⚠️ You must join our official channel to use this bot.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Join Channel First", url=CHANNEL_INVITE_LINK)]])
         )
         return
 
@@ -120,9 +125,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     
     keyboard = [
-        [InlineKeyboardButton("💳 Generate CC", callback_data='gen_acc')],
+        [InlineKeyboardButton("💳 Gen Normal CC (100 Cr)", callback_data='gen_normal')],
+        [InlineKeyboardButton("💎 Gen HQ CC (250 Cr)", callback_data='gen_hq')],
         [InlineKeyboardButton("💸 Deposit / Buy", callback_data='deposit_info')],
-        [InlineKeyboardButton("👤 My Profile", callback_data='profile'), InlineKeyboardButton("💎 Redeem Code", callback_data='redeem_btn')],
+        [InlineKeyboardButton("👤 My Profile", callback_data='profile'), InlineKeyboardButton("🎁 Redeem Code", callback_data='redeem_btn')],
         [InlineKeyboardButton("📞 Contact Admin", url=FB_ID_LINK)] 
     ]
     
@@ -135,53 +141,67 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def generate_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
+    data = query.data
     
     if not await check_join(user_id, context):
         await query.answer("❌ Join Channel First!", show_alert=True)
         return
 
     db_user = get_user(user_id)
-    COST = 200  
     
+    if data == 'gen_normal':
+        COST = 100
+        table = 'ccs_normal'
+        q_text = "NORMAL"
+    elif data == 'gen_hq':
+        COST = 250
+        table = 'ccs_hq'
+        q_text = "HIGH QUALITY"
+    else:
+        return
+
     if db_user[1] < COST:
-        await query.answer(f"❌ Low Balance! Need {COST} Credits.", show_alert=True)
+        await query.answer(f"❌ Low Balance! Need {COST} Credits for {q_text} CC.", show_alert=True)
         return
 
     conn = get_db_connection()
     c = conn.cursor()
     
-    c.execute("SELECT id, cc_info FROM ccs ORDER BY RANDOM() LIMIT 1")
+    c.execute(f"SELECT id, cc_info FROM {table} ORDER BY RANDOM() LIMIT 1")
     account = c.fetchone()
     
     if account:
         c.execute("UPDATE users SET credits = credits - %s, generated_count = generated_count + 1 WHERE user_id=%s", (COST, user_id))
-        c.execute("DELETE FROM ccs WHERE id=%s", (account[0],))
+        c.execute(f"DELETE FROM {table} WHERE id=%s", (account[0],))
         conn.commit()
         
         response_text = (
-            "✅ **SUCCESSFULLY GENERATED!**\n"
+            f"✅ **SUCCESSFULLY GENERATED {q_text} CC!**\n"
             "━━━━━━━━━━━━━━━━━━━━━\n"
             f"💳 `{account[1]}`\n"
             "━━━━━━━━━━━━━━━━━━━━━\n"
             "⚠️ *Check now! If invalid, click Not Working.*"
         )
-        keyboard = [[InlineKeyboardButton("✅ Working", callback_data='fb_working'), InlineKeyboardButton("❌ Not Working", callback_data='fb_not_working')]]
+        # Pass the cost so refund knows how much to refund
+        keyboard = [[InlineKeyboardButton("✅ Working", callback_data='fb_working'), InlineKeyboardButton("❌ Not Working", callback_data=f'fb_not_working_{COST}')]]
         await query.message.edit_text(response_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
     else:
-        await query.answer("⚠️ Stock Empty!", show_alert=True)
+        await query.answer(f"⚠️ {q_text} Stock Empty!", show_alert=True)
     conn.close()
 
 # 3. FEEDBACK
 async def feedback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
+    
     if data == 'fb_working':
         await query.answer("❤️ Awesome!")
         context.user_data['waiting_for_proof'] = 'hit_proof'
         await query.message.edit_text("✅ **WORKING!**\n🔥 Please send a screenshot of your hit/success now.", parse_mode='Markdown')
-    elif data == 'fb_not_working':
+    elif data.startswith('fb_not_working_'):
+        cost = data.split('_')[-1]
         await query.answer()
-        context.user_data['waiting_for_proof'] = 'report'
+        context.user_data['waiting_for_proof'] = f'report_{cost}'
         await query.message.edit_text("❌ **REPORT MODE**\nPlease send a screenshot of the error now.", parse_mode='Markdown')
 
 # 4. SCREENSHOT LOGS
@@ -191,9 +211,10 @@ async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     state = context.user_data.get('waiting_for_proof')
     user_link = f"[{user.first_name}](tg://user?id={user.id})"
     
-    if state == 'report':
+    if state and state.startswith('report_'):
+        cost = state.split('_')[1]
         caption = f"🚨 **REPORT**\n👤 From: {user_link}\n⚠️ Issue: CC Not Working."
-        keyboard = [[InlineKeyboardButton(f"♻️ Refund 200 Cr", callback_data=f"refund_{user.id}")], [InlineKeyboardButton("❌ Reject", callback_data="reject_action")]]
+        keyboard = [[InlineKeyboardButton(f"♻️ Refund {cost} Cr", callback_data=f"refund_{user.id}_{cost}")], [InlineKeyboardButton("❌ Reject", callback_data="reject_action")]]
         await update.message.reply_text("✅ Report Sent to Admin.")
         context.user_data['waiting_for_proof'] = None
         try: 
@@ -211,7 +232,6 @@ async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass 
             
     else:
-        # Default is Deposit Proof
         caption = f"💰 **DEPOSIT**\n👤 From: {user_link}\nℹ️ Verify TrxID & Approve:"
         keyboard = [
             [InlineKeyboardButton("Starter (200 Cr)", callback_data=f"pay_{user.id}_200_Starter")],
@@ -236,12 +256,15 @@ async def admin_log_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     c = conn.cursor()
 
     if data.startswith("refund_"):
-        target_id = int(data.split("_")[1])
-        c.execute("UPDATE users SET credits = credits + 200 WHERE user_id=%s", (target_id,))
+        parts = data.split("_")
+        target_id = int(parts[1])
+        refund_amount = int(parts[2])
+        
+        c.execute("UPDATE users SET credits = credits + %s WHERE user_id=%s", (refund_amount, target_id))
         conn.commit()
         await query.answer("✅ Refunded!")
-        await query.message.edit_caption(caption=query.message.caption + "\n\n✅ **REFUNDED (200 Cr)**")
-        try: await context.bot.send_message(target_id, "✅ 200 Credits Refunded!")
+        await query.message.edit_caption(caption=query.message.caption + f"\n\n✅ **REFUNDED ({refund_amount} Cr)**")
+        try: await context.bot.send_message(target_id, f"✅ {refund_amount} Credits Refunded!")
         except: pass
 
     elif data.startswith("pay_"):
@@ -277,29 +300,42 @@ async def add_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def add_cc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id): return
-    if not context.args:
-        await update.message.reply_text("⚠️ Usage: `/addcc 4108940050946458|10|27|017`")
+    if len(context.args) < 2:
+        await update.message.reply_text("⚠️ Usage: `/addcc normal 4108...` OR `/addcc hq 4108...`")
         return
     
-    cc_data = " ".join(context.args)
+    q_type = context.args[0].lower()
+    if q_type not in ['normal', 'hq']:
+        await update.message.reply_text("⚠️ Type must be 'normal' or 'hq'.")
+        return
+        
+    cc_data = " ".join(context.args[1:])
+    table = 'ccs_normal' if q_type == 'normal' else 'ccs_hq'
+    
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("INSERT INTO ccs (cc_info) VALUES (%s)", (cc_data,))
+    c.execute(f"INSERT INTO {table} (cc_info) VALUES (%s)", (cc_data,))
     conn.commit()
     conn.close()
     
-    await update.message.reply_text(f"✅ CC Successfully Added:\n💳 `{cc_data}`", parse_mode='Markdown')
+    await update.message.reply_text(f"✅ CC Successfully Added to {q_type.upper()} Stock:\n💳 `{cc_data}`", parse_mode='Markdown')
 
 async def delete_stock_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id): return
+    if not context.args or context.args[0].lower() not in ['normal', 'hq']:
+        await update.message.reply_text("⚠️ Usage: `/delete normal` OR `/delete hq`")
+        return
+        
+    q_type = context.args[0].lower()
+    table = 'ccs_normal' if q_type == 'normal' else 'ccs_hq'
     
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("DELETE FROM ccs") 
+    c.execute(f"DELETE FROM {table}") 
     conn.commit()
     conn.close()
     
-    await update.message.reply_text("🗑️ **STOCK CLEARED!**\nAll CCs have been deleted from the database.", parse_mode='Markdown')
+    await update.message.reply_text(f"🗑️ **{q_type.upper()} STOCK CLEARED!**", parse_mode='Markdown')
 
 async def active_users_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id): return
@@ -320,39 +356,63 @@ async def active_users_command(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def admin_get_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id): return
+    if not context.args or context.args[0].lower() not in ['normal', 'hq']:
+        await update.message.reply_text("⚠️ Usage: `/adminget normal` OR `/adminget hq`")
+        return
+        
+    q_type = context.args[0].lower()
+    table = 'ccs_normal' if q_type == 'normal' else 'ccs_hq'
+    
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("SELECT id, cc_info FROM ccs ORDER BY RANDOM() LIMIT 1")
+    c.execute(f"SELECT id, cc_info FROM {table} ORDER BY RANDOM() LIMIT 1")
     acc = c.fetchone()
     if acc:
-        c.execute("DELETE FROM ccs WHERE id=%s", (acc[0],)) 
+        c.execute(f"DELETE FROM {table} WHERE id=%s", (acc[0],)) 
         conn.commit()
-        await update.message.reply_text(f"👑 **ADMIN GET**\n💳 `{acc[1]}`", parse_mode='Markdown')
+        await update.message.reply_text(f"👑 **ADMIN GET ({q_type.upper()})**\n💳 `{acc[1]}`", parse_mode='Markdown')
     else:
-        await update.message.reply_text("❌ Stock Empty!")
+        await update.message.reply_text(f"❌ {q_type.upper()} Stock Empty!")
     conn.close()
 
-# 7. OTHER COMMANDS
+# 7. OTHER COMMANDS & FILE UPLOAD
 async def upload_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id): return
-    msg = await update.message.reply_text("⏳ Scanning CCs...")
+    file = await update.message.document.get_file()
+    file_path = f"stock_{update.effective_user.id}.txt"
+    await file.download_to_drive(file_path)
+    
+    kb = [
+        [InlineKeyboardButton("🔵 Normal Stock", callback_data='addstock_normal')],
+        [InlineKeyboardButton("🟣 HQ Stock", callback_data='addstock_hq')]
+    ]
+    await update.message.reply_text("📁 File received! Which stock do you want to add these to?", reply_markup=InlineKeyboardMarkup(kb))
+
+async def process_stock_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    table = 'ccs_normal' if q.data == 'addstock_normal' else 'ccs_hq'
+    file_path = f"stock_{q.from_user.id}.txt"
+    
+    if not os.path.exists(file_path):
+        await q.answer("❌ File not found! Please upload again.", show_alert=True)
+        return
+        
+    await q.message.edit_text(f"⏳ Scanning and adding CCs to {table.upper()}...")
     try:
-        file = await update.message.document.get_file()
-        await file.download_to_drive("stock.txt")
         conn = get_db_connection()
         c = conn.cursor()
         count = 0
-        
         pattern = re.compile(r'(\d{15,16}[|]\d{1,2}[|]\d{2,4}[|]\d{3,4})')
         
-        with open("stock.txt", 'r', encoding='utf-8', errors='ignore') as f:
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             for cc in pattern.findall(f.read()):
-                c.execute("INSERT INTO ccs (cc_info) VALUES (%s)", (cc,))
+                c.execute(f"INSERT INTO {table} (cc_info) VALUES (%s)", (cc,))
                 count += 1
                 
-        conn.commit(); conn.close(); os.remove("stock.txt")
-        await msg.edit_text(f"✅ Added {count} CCs to stock.")
-    except Exception as e: await msg.edit_text(f"❌ Error: {e}")
+        conn.commit(); conn.close(); os.remove(file_path)
+        await q.message.edit_text(f"✅ Successfully added {count} CCs to {table.upper()}.")
+    except Exception as e: 
+        await q.message.edit_text(f"❌ Error: {e}")
 
 async def gen_code_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id): return
@@ -402,14 +462,14 @@ async def show_cmds(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id): return
     cmds = (
         "🛠 **ADMIN COMMANDS**\n"
-        "1. `/addcc <card_details>` - Add single CC\n"
-        "2. `/admin <id>` - Add new Admin (Owner Only)\n"
+        "1. `/addcc normal <card>` OR `/addcc hq <card>`\n"
+        "2. `/admin <id>` - Add new Admin\n"
         "3. `/active` - Clickable User List\n"
-        "4. `/adminget` - Free CC\n"
-        "5. `/delete` - Clear ALL Stock\n"
+        "4. `/adminget normal` OR `/adminget hq`\n"
+        "5. `/delete normal` OR `/delete hq`\n"
         "6. `/gencode <amt> <role>`\n"
         "7. `/addcredit <id> <amt>`\n"
-        "8. Upload `.txt` File with CCs to auto-add"
+        "8. Upload `.txt` File -> Select Normal or HQ"
     )
     await update.message.reply_text(cmds)
 
@@ -443,10 +503,11 @@ async def deposit_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def btn_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     if q.data.startswith(('pay_', 'refund_', 'reject_')): await admin_log_actions(update, context)
-    elif q.data == 'gen_acc': await generate_account(update, context)
+    elif q.data in ['gen_normal', 'gen_hq']: await generate_account(update, context)
+    elif q.data in ['addstock_normal', 'addstock_hq']: await process_stock_file(update, context)
     elif q.data == 'profile': await start(update, context)
     elif q.data == 'deposit_info': await deposit_info(update, context)
-    elif q.data in ['fb_working', 'fb_not_working']: await feedback_handler(update, context)
+    elif q.data == 'fb_working' or q.data.startswith('fb_not_working'): await feedback_handler(update, context)
     elif q.data == 'redeem_btn': await q.answer(); await q.message.reply_text("Type `/redeem CODE`")
 
 def main():
@@ -469,4 +530,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
