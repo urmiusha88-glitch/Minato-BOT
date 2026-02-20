@@ -12,12 +12,13 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 # ======================================================
 # 👇 CONFIGURATION SECTION (MUST EDIT THIS)
 # ======================================================
-TOKEN = "8290942305:AAGB70nqTwvapZIaBCeXxIwnwUnGpq_ccHc"  # ⚠️ এখানে BotFather থেকে পাওয়া নতুন টোকেনটি বসান
+TOKEN = "8290942305:AAGB70nqTwvapZIaBCeXxIwnwUnGpq_ccHc"  # ⚠️ ekhane BotFather theke pawa notun token ti boshan
 ADMIN_ID = 6198703244  # Your Telegram ID (MAIN OWNER)
 
 # 💰 PAYMENT DETAILS
-PAYMENT_NUMBER = "01846849460"  # Bkash/Nagad Number
-BINANCE_PAY_ID = "1016246479"  # Binance Pay ID বা Email
+BKASH_NUMBER = "01846849460"    # Apnar Bkash Number
+NAGAD_NUMBER = "01846849460"    # Apnar Nagad Number
+BINANCE_PAY_ID = "1016246479"  # Binance Pay ID
 
 # 🗄️ DATABASE URL (RAILWAY POSTGRESQL LINK)
 DB_URL = "postgresql://postgres:cIJaXIJvmBepjzPcXskiJgFPwvkLdlEA@maglev.proxy.rlwy.net:22522/railway"
@@ -26,7 +27,7 @@ DB_URL = "postgresql://postgres:cIJaXIJvmBepjzPcXskiJgFPwvkLdlEA@maglev.proxy.rl
 ADMIN_LOG_ID = -1003769033152
 PUBLIC_LOG_ID = -1003775622081
 
-# ⚠️ Force Join Channel (বটকে অবশ্যই এই চ্যানেলে এডমিন বানাতে হবে)
+# ⚠️ Force Join Channel
 CHANNEL_ID = "@minatologs"
 CHANNEL_INVITE_LINK = "https://t.me/minatologs/2"
 
@@ -36,6 +37,16 @@ FB_PAGE_LINK = "https://www.facebook.com/toxicnaaa69"
 # ======================================================
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+
+# --- COUNTRY CALLING CODES ---
+COUNTRY_CALLING_CODES = {
+    "US": "+1", "GB": "+44", "CA": "+1", "AU": "+61", "IN": "+91", "BD": "+880",
+    "BR": "+55", "FR": "+33", "DE": "+49", "IT": "+39", "ES": "+34", "MX": "+52",
+    "JP": "+81", "CN": "+86", "RU": "+7", "ZA": "+27", "NG": "+234", "AR": "+54",
+    "CO": "+57", "PE": "+51", "PH": "+63", "VN": "+84", "TH": "+66", "MY": "+60",
+    "ID": "+62", "PK": "+92", "TR": "+90", "EG": "+20", "SA": "+966", "AE": "+971",
+    "KR": "+82", "SG": "+65", "SE": "+46", "CH": "+41", "NL": "+31", "PL": "+48"
+}
 
 # --- DATABASE CONNECTION HELPER ---
 def get_db_connection():
@@ -102,27 +113,36 @@ async def check_join(user_id, context):
 
 # 👉 IDENTITY GENERATOR HELPER
 def generate_fake_identity(country_code):
+    cc = country_code.upper()
+    base_fake = Faker('en_US') 
+    
     try:
-        fake = Faker(f"en_{country_code.upper()}")
+        local_fake = Faker(f"en_{cc}")
     except:
         try:
-            fake = Faker(f"{country_code.lower()}_{country_code.upper()}")
+            local_fake = Faker(f"{country_code.lower()}_{cc}")
         except:
-            fake = Faker('en_US')
+            local_fake = Faker('en_US')
             
     try:
-        state = fake.state()
+        state = local_fake.state()
     except:
-        state = fake.city()
+        try:
+            state = local_fake.city()
+        except:
+            state = "State/Province"
+
+    c_code = COUNTRY_CALLING_CODES.get(cc, "+1") 
+    num = ''.join([str(random.randint(0,9)) for _ in range(10)])
+    phone_number = f"{c_code} {num[:3]}-{num[3:6]}-{num[6:]}"
 
     return {
-        "name": fake.name(),
-        "street": fake.street_address(),
-        "city": fake.city(),
+        "name": base_fake.name(),
+        "street": local_fake.street_address(),
         "state": state,
-        "zipcode": fake.postcode(),
-        "phone": fake.phone_number(),
-        "ip": fake.ipv4_public()
+        "zipcode": local_fake.postcode(),
+        "phone": phone_number,
+        "ip": base_fake.ipv4_public()
     }
 
 # --- HANDLERS ---
@@ -166,7 +186,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try: await update.callback_query.message.edit_text(welcome_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         except: pass
 
-# 2. GENERATE CC WITH FULL IDENTITY
+# 2. GENERATE CC WITH EXACT REQUESTED FORMAT
 async def generate_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -182,10 +202,12 @@ async def generate_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
         COST = 100
         table = 'ccs_normal'
         q_text = "NORMAL"
+        sim_balance = f"${round(random.uniform(50.0, 300.0), 2)}"
     elif data == 'gen_hq':
         COST = 250
         table = 'ccs_hq'
         q_text = "HIGH QUALITY"
+        sim_balance = f"${round(random.uniform(500.0, 4000.0), 2)}"
     else:
         return
 
@@ -219,7 +241,7 @@ async def generate_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 resp = await client.get(f"https://lookup.binlist.net/{bin_num}", timeout=5.0)
                 if resp.status_code == 200:
                     bin_data = resp.json()
-                    bank_name = bin_data.get("bank", {}).get("name", "Unknown Bank")
+                    bank_name = bin_data.get("bank", {}).get("name", "Unknown Bank").upper()
                     country_name = bin_data.get("country", {}).get("name", "United States")
                     country_code = bin_data.get("country", {}).get("alpha2", "US")
         except:
@@ -233,14 +255,15 @@ async def generate_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"💳 `{cc_full_text}`\n"
             "━━━━━━━━━━━━━━━━━━━━━\n"
             f"🏦 **Bank:** `{bank_name}`\n"
-            f"🌍 **Country:** `{country_name} ({country_code})`\n"
-            "━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🌍 **Country:** `{country_name}`\n"
             f"👤 **Name:** `{identity['name']}`\n"
-            f"📍 **Street:** `{identity['street']}`\n"
-            f"🏙 **City/State:** `{identity['city']}, {identity['state']}`\n"
-            f"📮 **Zipcode:** `{identity['zipcode']}`\n"
-            f"📞 **Phone:** `{identity['phone']}`\n"
             f"🌐 **IP Address:** `{identity['ip']}`\n"
+            f"📞 **Phone Details:** `{identity['phone']}`\n"
+            f"📮 **Zipcode:** `{identity['zipcode']}`\n"
+            f"📍 **Street Address:** `{identity['street']}`\n"
+            f"🏙 **State:** `{identity['state']}`\n"
+            f"🌍 **Country:** `{country_name}`\n"
+            f"💰 **Balance (Est):** `{sim_balance}`\n"
             "━━━━━━━━━━━━━━━━━━━━━\n"
             "⚠️ *Check now! If invalid, click Not Working.*"
         )
@@ -265,14 +288,65 @@ async def feedback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['waiting_for_proof'] = f'report_{cost}'
         await query.message.edit_text("❌ **REPORT MODE**\nPlease send a screenshot of the error now.", parse_mode='Markdown')
 
-# 4. SCREENSHOT LOGS
+# 4. DEPOSIT INFO & METHOD SELECTION
+async def deposit_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (
+        "💸 **DEPOSIT & PRICING LIST**\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "🟢 **Starter Plan:** 50 BDT / $0.50 ➔ 200 Credits\n"
+        "🔵 **Basic Plan:** 100 BDT / $1.00 ➔ 500 Credits\n"
+        "🟣 **Pro Plan:** 300 BDT / $3.00 ➔ 2500 Credits\n"
+        "⚡ **Max Plan:** 1000 BDT / $10.00 ➔ 10,000 Credits\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "👇 **SELECT PAYMENT METHOD:**"
+    )
+    kb = [
+        [InlineKeyboardButton("🟣 Bkash", callback_data='method_bkash'), InlineKeyboardButton("🟠 Nagad", callback_data='method_nagad')],
+        [InlineKeyboardButton("🟡 Binance Pay", callback_data='method_binance')],
+        [InlineKeyboardButton("🔙 Back", callback_data='profile')]
+    ]
+    if update.callback_query: 
+        await update.callback_query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
+
+async def payment_method_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    method = query.data.split('_')[1] # bkash, nagad, binance
+    
+    context.user_data['deposit_method'] = method
+    context.user_data['waiting_for_proof'] = 'deposit_ss'
+
+    if method == 'bkash':
+        details = f"📱 **Bkash Personal:** `{BKASH_NUMBER}`"
+    elif method == 'nagad':
+        details = f"📱 **Nagad Personal:** `{NAGAD_NUMBER}`"
+    else:
+        details = f"🟡 **Binance Pay ID:** `{BINANCE_PAY_ID}`"
+
+    text = (
+        f"💳 **PAY VIA {method.upper()}**\n\n"
+        f"{details}\n\n"
+        "⚠️ **STEP 1:** Send the money to the details above.\n"
+        "⚠️ **STEP 2:** Send the payment **Screenshot** here."
+    )
+    kb = [[InlineKeyboardButton("🔙 Back to Deposit", callback_data='deposit_info')]]
+    await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
+
+# 5. SCREENSHOT LOGS (MODIFIED FOR TRXID)
 async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     photo = update.message.photo[-1].file_id
     state = context.user_data.get('waiting_for_proof')
     user_link = f"[{user.first_name}](tg://user?id={user.id})"
     
-    if state and state.startswith('report_'):
+    if state == 'deposit_ss':
+        context.user_data['deposit_photo'] = photo
+        context.user_data['waiting_for_proof'] = 'deposit_trxid'
+        await update.message.reply_text(
+            "✅ **Screenshot Received!**\n\n"
+            "📝 Now, please type and send the **Transaction ID (TrxID)** or Binance Order ID."
+        )
+        
+    elif state and state.startswith('report_'):
         cost = state.split('_')[1]
         caption = f"🚨 **REPORT**\n👤 From: {user_link}\n⚠️ Issue: CC Not Working."
         keyboard = [[InlineKeyboardButton(f"♻️ Refund {cost} Cr", callback_data=f"refund_{user.id}_{cost}")], [InlineKeyboardButton("❌ Reject", callback_data="reject_action")]]
@@ -281,7 +355,7 @@ async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try: 
             await context.bot.send_photo(chat_id=ADMIN_LOG_ID, photo=photo, caption=caption, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         except Exception as e: 
-            await update.message.reply_text(f"⚠️ Log Error: {e}")
+            pass
             
     elif state == 'hit_proof':
         caption = f"🔥 **SUCCESSFUL HIT!**\n👤 By: {user_link}\n✅ CC is working perfectly!"
@@ -293,7 +367,25 @@ async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass 
             
     else:
-        caption = f"💰 **DEPOSIT**\n👤 From: {user_link}\nℹ️ Verify TrxID & Approve:"
+        await update.message.reply_text("⚠️ Please go to the Deposit menu and select a payment method first.")
+
+# 6. TEXT HANDLER FOR TRXID
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    state = context.user_data.get('waiting_for_proof')
+    if state == 'deposit_trxid':
+        trxid = update.message.text
+        photo = context.user_data.get('deposit_photo')
+        method = context.user_data.get('deposit_method', 'Unknown').upper()
+        user = update.effective_user
+        user_link = f"[{user.first_name}](tg://user?id={user.id})"
+
+        caption = (
+            f"💰 **NEW DEPOSIT REQUEST**\n"
+            f"👤 From: {user_link} (`{user.id}`)\n"
+            f"💳 Method: `{method}`\n"
+            f"🧾 **TrxID:** `{trxid}`\n\n"
+            f"ℹ️ Verify TrxID & Approve:"
+        )
         keyboard = [
             [InlineKeyboardButton("Starter (200 Cr)", callback_data=f"pay_{user.id}_200_Starter")],
             [InlineKeyboardButton("Basic (500 Cr)", callback_data=f"pay_{user.id}_500_Basic")],
@@ -302,13 +394,20 @@ async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("Max (10000 Cr)", callback_data=f"pay_{user.id}_10000_Max")],
             [InlineKeyboardButton("❌ Reject", callback_data="reject_action")]
         ]
-        await update.message.reply_text("✅ Proof Received. Wait for Admin Approval.")
+        
+        await update.message.reply_text("✅ **Deposit Request Sent!**\nPlease wait for admin approval.")
+        
         try: 
             await context.bot.send_photo(chat_id=ADMIN_LOG_ID, photo=photo, caption=caption, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         except Exception as e: 
-            await update.message.reply_text(f"⚠️ Log Error: {e}")
+            pass
 
-# 5. ADMIN ACTIONS
+        # Reset states
+        context.user_data['waiting_for_proof'] = None
+        context.user_data['deposit_photo'] = None
+        context.user_data['deposit_method'] = None
+
+# 7. ADMIN ACTIONS
 async def admin_log_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if not is_admin(query.from_user.id): return
@@ -345,7 +444,7 @@ async def admin_log_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     conn.close()
 
-# 6. ADMIN COMMANDS
+# 8. ADMIN COMMANDS
 async def add_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return 
     try:
@@ -436,7 +535,7 @@ async def admin_get_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ {q_type.upper()} Stock Empty!")
     conn.close()
 
-# 7. OTHER COMMANDS & FILE UPLOAD
+# 9. OTHER COMMANDS & FILE UPLOAD
 async def upload_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id): return
     file = await update.message.document.get_file()
@@ -534,7 +633,6 @@ async def show_cmds(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(cmds)
 
-# 👇 USER HELP COMMAND 👇
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text = (
         "🛠 **USER COMMANDS & HELP**\n"
@@ -551,34 +649,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(help_text, parse_mode='Markdown')
 
-# 👇 MODIFIED DEPOSIT INFO 👇
-async def deposit_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = (
-        "💸 **DEPOSIT & PRICING LIST**\n"
-        "━━━━━━━━━━━━━━━━━━━━━\n\n"
-        "🟢 **Starter Plan**\n"
-        "💰 Price: 50 BDT / $0.50\n"
-        "💎 Get: 200 Credits\n\n"
-        "🔵 **Basic Plan**\n"
-        "💰 Price: 100 BDT / $1.00\n"
-        "💎 Get: 500 Credits\n\n"
-        "🟣 **Pro Plan**\n"
-        "💰 Price: 300 BDT / $3.00\n"
-        "💎 Get: 2500 Credits\n\n"
-        "⚡ **Max Plan**\n"
-        "💰 Price: 1000 BDT / $10.00\n"
-        "💎 Get: 10,000 Credits\n\n"
-        "━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📱 **Bkash / Nagad:** `{PAYMENT_NUMBER}`\n"
-        f"🟡 **Binance Pay ID:** `{BINANCE_PAY_ID}`\n\n"
-        "**👇 HOW TO PAY:**\n"
-        "👉 Send Money/Crypto to the details above and send the payment Screenshot here."
-    )
-    kb = [
-        [InlineKeyboardButton("🔙 Back", callback_data='profile')]
-    ]
-    if update.callback_query: await update.callback_query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
-
 # MAIN
 async def btn_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -587,6 +657,7 @@ async def btn_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif q.data in ['addstock_normal', 'addstock_hq']: await process_stock_file(update, context)
     elif q.data == 'profile': await start(update, context)
     elif q.data == 'deposit_info': await deposit_info(update, context)
+    elif q.data.startswith('method_'): await payment_method_handler(update, context)
     elif q.data == 'fb_working' or q.data.startswith('fb_not_working'): await feedback_handler(update, context)
     elif q.data == 'redeem_btn': await q.answer(); await q.message.reply_text("Type `/redeem CODE`")
 
@@ -606,6 +677,7 @@ def main():
     app.add_handler(CommandHandler("admin", add_admin_command))
     app.add_handler(MessageHandler(filters.Document.MimeType("text/plain"), upload_file))
     app.add_handler(MessageHandler(filters.PHOTO, handle_screenshot))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text)) # 👈 TrxID dhap er jonno add kora hoyeche
     app.add_handler(CallbackQueryHandler(btn_handler))
     app.run_polling()
 
