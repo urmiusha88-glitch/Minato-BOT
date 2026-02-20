@@ -11,7 +11,7 @@ from telegram.error import BadRequest
 # ======================================================
 # 👇 CONFIGURATION SECTION (MUST EDIT THIS)
 # ======================================================
-TOKEN = "8290942305:AAGB70nqTwvapZIaBCeXxIwnwUnGpq_ccHc"  # Bot Token
+TOKEN = "8290942305:AAGHVDfo3PlvK3atxn9CGIGqndbd5RTQFqk"  # Bot Token (Make sure to use your new working token)
 ADMIN_ID = 6198703244  # Your Telegram ID (MAIN OWNER)
 PAYMENT_NUMBER = "01846849460"  # Bkash/Nagad Number
 
@@ -27,11 +27,17 @@ FB_ID_LINK ="https://www.facebook.com/yours.ononto"
 FB_PAGE_LINK = "https://www.facebook.com/toxicnaaa69"
 # ======================================================
 
+# 💾 DATABASE PATH LOGIC (Railway Permanent Storage Support)
+if os.path.exists('/data'):
+    DB_PATH = '/data/minato_bot.db'
+else:
+    DB_PATH = 'minato_bot.db'
+
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 # --- DATABASE ---
 def init_db():
-    conn = sqlite3.connect('minato_bot.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS users 
                  (user_id INTEGER PRIMARY KEY, credits INTEGER, role TEXT, generated_count INTEGER DEFAULT 0, full_name TEXT)''')
@@ -50,14 +56,14 @@ init_db()
 def is_admin(user_id):
     if user_id == ADMIN_ID:
         return True
-    conn = sqlite3.connect('minato_bot.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     res = c.execute("SELECT * FROM admins WHERE admin_id=?", (user_id,)).fetchone()
     conn.close()
     return bool(res)
 
 def get_user(user_id, first_name="Unknown"):
-    conn = sqlite3.connect('minato_bot.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
     user = c.fetchone()
@@ -134,13 +140,13 @@ async def generate_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     db_user = get_user(user_id)
-    COST = 200  # <--- Changed cost to 200 Credits
+    COST = 200  # Cost per CC is 200 Credits
     
     if db_user[1] < COST:
         await query.answer(f"❌ Low Balance! Need {COST} Credits.", show_alert=True)
         return
 
-    conn = sqlite3.connect('minato_bot.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     
     c.execute("SELECT id, cc_info FROM ccs ORDER BY RANDOM() LIMIT 1")
@@ -148,7 +154,6 @@ async def generate_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if account:
         c.execute("UPDATE users SET credits = credits - ?, generated_count = generated_count + 1 WHERE user_id=?", (COST, user_id))
-        # This line ensures the CC is deleted from stock once generated
         c.execute("DELETE FROM ccs WHERE id=?", (account[0],))
         conn.commit()
         
@@ -212,7 +217,7 @@ async def admin_log_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if not is_admin(query.from_user.id): return
     data = query.data
-    conn = sqlite3.connect('minato_bot.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
     if data.startswith("refund_"):
@@ -246,7 +251,7 @@ async def add_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return 
     try:
         new_admin = int(context.args[0])
-        conn = sqlite3.connect('minato_bot.db')
+        conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         c.execute("INSERT OR IGNORE INTO admins (admin_id) VALUES (?)", (new_admin,))
         conn.commit()
@@ -262,7 +267,7 @@ async def add_cc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     cc_data = " ".join(context.args)
-    conn = sqlite3.connect('minato_bot.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("INSERT INTO ccs (cc_info) VALUES (?)", (cc_data,))
     conn.commit()
@@ -273,7 +278,7 @@ async def add_cc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def delete_stock_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id): return
     
-    conn = sqlite3.connect('minato_bot.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("DELETE FROM ccs") 
     conn.commit()
@@ -283,7 +288,7 @@ async def delete_stock_command(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def active_users_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id): return
-    conn = sqlite3.connect('minato_bot.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("SELECT full_name, user_id, credits, generated_count FROM users ORDER BY generated_count DESC LIMIT 10")
     users = c.fetchall()
@@ -300,7 +305,7 @@ async def active_users_command(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def admin_get_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id): return
-    conn = sqlite3.connect('minato_bot.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("SELECT id, cc_info FROM ccs ORDER BY RANDOM() LIMIT 1")
     acc = c.fetchone()
@@ -319,7 +324,7 @@ async def upload_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         file = await update.message.document.get_file()
         await file.download_to_drive("stock.txt")
-        conn = sqlite3.connect('minato_bot.db')
+        conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         count = 0
         
@@ -340,7 +345,7 @@ async def gen_code_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         amt = int(context.args[0])
         role = context.args[1].upper() if len(context.args) > 1 else "PREMIUM"
         code = generate_minato_code(role)
-        sqlite3.connect('minato_bot.db').cursor().execute("INSERT INTO codes VALUES (?,?,?,0)", (code, amt, role)).connection.commit()
+        sqlite3.connect(DB_PATH).cursor().execute("INSERT INTO codes VALUES (?,?,?,0)", (code, amt, role)).connection.commit()
         await update.message.reply_text(f"`{code}`")
     except: pass
 
@@ -348,14 +353,14 @@ async def add_credit_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not is_admin(update.effective_user.id): return
     try:
         tid, amt = int(context.args[0]), int(context.args[1])
-        sqlite3.connect('minato_bot.db').cursor().execute("UPDATE users SET credits=credits+? WHERE user_id=?", (amt, tid)).connection.commit()
+        sqlite3.connect(DB_PATH).cursor().execute("UPDATE users SET credits=credits+? WHERE user_id=?", (amt, tid)).connection.commit()
         await update.message.reply_text("✅ Done")
     except: pass
 
 async def redeem_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         code = context.args[0].strip(); uid = update.effective_user.id
-        conn = sqlite3.connect('minato_bot.db'); c = conn.cursor()
+        conn = sqlite3.connect(DB_PATH); c = conn.cursor()
         res = c.execute("SELECT * FROM codes WHERE code=? AND is_redeemed=0", (code,)).fetchone()
         if res:
             c.execute("UPDATE codes SET is_redeemed=1 WHERE code=?", (code,))
@@ -383,7 +388,7 @@ async def show_cmds(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(cmds)
 
-# 👇 MODIFIED DEPOSIT INFO (Removed Card Payment) 👇
+# 👇 DEPOSIT INFO 👇
 async def deposit_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "💸 **DEPOSIT & PRICING LIST**\n"
@@ -439,4 +444,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
