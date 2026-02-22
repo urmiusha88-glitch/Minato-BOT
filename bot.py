@@ -5,6 +5,7 @@ import string
 import os
 import re
 import httpx
+from datetime import date
 from faker import Faker
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
@@ -12,13 +13,13 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 # ======================================================
 # 👇 CONFIGURATION SECTION (MUST EDIT THIS)
 # ======================================================
-TOKEN = "8290942305:AAGB70nqTwvapZIaBCeXxIwnwUnGpq_ccHc"  # ⚠️ ekhane BotFather theke pawa notun token ti boshan
+TOKEN = "8290942305:AAGB70nqTwvapZIaBCeXxIwnwUnGpq_ccHc"  # ⚠️ এখানে BotFather থেকে পাওয়া নতুন টোকেনটি বসান
 ADMIN_ID = 6198703244  # Your Telegram ID (MAIN OWNER)
 
 # 💰 PAYMENT DETAILS
-BKASH_NUMBER = "01846849460"    # Apnar Bkash Number
-NAGAD_NUMBER = "01846849460"    # Apnar Nagad Number
-BINANCE_PAY_ID = "1016246479"  # Binance Pay ID
+BKASH_NUMBER = "01846849460"    
+NAGAD_NUMBER = "01846849460"    
+BINANCE_PAY_ID = "1016246479"  
 
 # 🗄️ DATABASE URL (RAILWAY POSTGRESQL LINK)
 DB_URL = "postgresql://postgres:cIJaXIJvmBepjzPcXskiJgFPwvkLdlEA@maglev.proxy.rlwy.net:22522/railway"
@@ -66,6 +67,8 @@ def init_db():
                  (code TEXT PRIMARY KEY, credit_amount INTEGER, role_reward TEXT, is_redeemed INTEGER)''')
     c.execute('''CREATE TABLE IF NOT EXISTS admins 
                  (admin_id BIGINT PRIMARY KEY)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS bonus 
+                 (user_id BIGINT PRIMARY KEY, last_claim DATE)''') # NEW TABLE FOR BONUS
     conn.commit()
     conn.close()
 
@@ -111,7 +114,6 @@ async def check_join(user_id, context):
     except: 
         return True 
 
-# 👉 IDENTITY GENERATOR HELPER
 def generate_fake_identity(country_code):
     cc = country_code.upper()
     base_fake = Faker('en_US') 
@@ -147,7 +149,7 @@ def generate_fake_identity(country_code):
 
 # --- HANDLERS ---
 
-# 1. START MENU
+# 1. NEW MAIN MENU UI
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not await check_join(user.id, context):
@@ -160,25 +162,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db_user = get_user(user.id, user.first_name)
     
     welcome_text = (
-        f"🌟 **WELCOME TO MINATO CC SERVICES** 🌟\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"👋 **Hi, {user.first_name}**\n\n"
-        f"💎 **Credits:** `{db_user[1]}`\n"
-        f"👑 **Status:** `{db_user[2]}`\n"
-        f"📦 **Generated:** `{db_user[3]}`\n"
-        f"🆔 **Account ID:** `{user.id}`\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"⚡ _Premium CCs at Cheapest Rate!_\n\n"
-        f"👨‍💻 **Developer:** [Ononto Hasan]({FB_ID_LINK})\n"
-        f"📢 **Page:** [Official Page]({FB_PAGE_LINK})"
+        f"🔥 **𝐌𝐈𝐍𝐀𝐓𝐎 𝐂𝐂 𝐒𝐓𝐎𝐑𝐄** 🔥\n"
+        f"▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱\n"
+        f"👋 **Welcome, {user.first_name}!**\n\n"
+        f"👤 **𝐀𝐜𝐜𝐨𝐮𝐧𝐭 𝐈𝐧𝐟𝐨𝐫𝐦𝐚𝐭𝐢𝐨𝐧:**\n"
+        f"├ 🆔 **ID:** `{user.id}`\n"
+        f"├ 💎 **Credits:** `{db_user[1]}`\n"
+        f"├ 👑 **Role:** `{db_user[2]}`\n"
+        f"└ 📦 **Purchases:** `{db_user[3]}`\n\n"
+        f"🎁 **Tips:** Click 'Daily Bonus' for free credits!\n"
+        f"▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱"
     )
     
     keyboard = [
-        [InlineKeyboardButton("💳 Gen Normal CC (100 Cr)", callback_data='gen_normal')],
-        [InlineKeyboardButton("💎 Gen HQ CC (250 Cr)", callback_data='gen_hq')],
-        [InlineKeyboardButton("💸 Deposit / Buy", callback_data='deposit_info')],
-        [InlineKeyboardButton("👤 My Profile", callback_data='profile'), InlineKeyboardButton("🎁 Redeem Code", callback_data='redeem_btn')],
-        [InlineKeyboardButton("📞 Contact Admin", url=f"tg://user?id={ADMIN_ID}")] 
+        [InlineKeyboardButton("🛒 Open Store (Generate)", callback_data='store_menu')],
+        [InlineKeyboardButton("💰 Deposit", callback_data='deposit_info'), InlineKeyboardButton("🎁 Daily Bonus", callback_data='daily_bonus')],
+        [InlineKeyboardButton("🎫 Redeem Code", callback_data='redeem_btn')],
+        [InlineKeyboardButton("👨‍💻 Admin Support", url=f"tg://user?id={ADMIN_ID}")] 
     ]
     
     if update.message: await update.message.reply_text(welcome_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
@@ -186,7 +186,54 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try: await update.callback_query.message.edit_text(welcome_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         except: pass
 
-# 2. GENERATE CC WITH EXACT REQUESTED FORMAT
+# 2. NEW STORE MENU
+async def store_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (
+        "🛒 **𝐌𝐈𝐍𝐀𝐓𝐎 𝐒𝐓𝐎𝐑𝐄**\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "Please select the quality of the CC you want to generate. "
+        "HQ CCs have a higher valid rate.\n\n"
+        "🟢 **Normal CC:** 100 Credits\n"
+        "🟣 **High Quality (HQ) CC:** 250 Credits"
+    )
+    kb = [
+        [InlineKeyboardButton("🟢 Gen Normal CC (100 Cr)", callback_data='gen_normal')],
+        [InlineKeyboardButton("🟣 Gen HQ CC (250 Cr)", callback_data='gen_hq')],
+        [InlineKeyboardButton("🔙 Back to Main Menu", callback_data='main_menu')]
+    ]
+    await update.callback_query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
+
+# 3. DAILY BONUS FUNCTION
+async def daily_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    
+    if not await check_join(user_id, context):
+        await query.answer("❌ Join Channel First!", show_alert=True)
+        return
+
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT last_claim FROM bonus WHERE user_id=%s", (user_id,))
+    res = c.fetchone()
+    today = date.today()
+    
+    if res and res[0] == today:
+        await query.answer("❌ You already claimed your bonus today! Come back tomorrow.", show_alert=True)
+    else:
+        bonus_amount = random.randint(15, 50)
+        c.execute("UPDATE users SET credits = credits + %s WHERE user_id=%s", (bonus_amount, user_id))
+        if res:
+            c.execute("UPDATE bonus SET last_claim=%s WHERE user_id=%s", (today, user_id))
+        else:
+            c.execute("INSERT INTO bonus (user_id, last_claim) VALUES (%s, %s)", (user_id, today))
+        conn.commit()
+        await query.answer(f"🎉 Awesome! You received {bonus_amount} Free Credits today!", show_alert=True)
+        
+    conn.close()
+    await start(update, context)
+
+# 4. GENERATE CC (NO BALANCE, EXACT FORMAT)
 async def generate_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -202,12 +249,10 @@ async def generate_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
         COST = 100
         table = 'ccs_normal'
         q_text = "NORMAL"
-        sim_balance = f"${round(random.uniform(50.0, 300.0), 2)}"
     elif data == 'gen_hq':
         COST = 250
         table = 'ccs_hq'
         q_text = "HIGH QUALITY"
-        sim_balance = f"${round(random.uniform(500.0, 4000.0), 2)}"
     else:
         return
 
@@ -263,7 +308,6 @@ async def generate_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📍 **Street Address:** `{identity['street']}`\n"
             f"🏙 **State:** `{identity['state']}`\n"
             f"🌍 **Country:** `{country_name}`\n"
-            f"💰 **Balance (Est):** `{sim_balance}`\n"
             "━━━━━━━━━━━━━━━━━━━━━\n"
             "⚠️ *Check now! If invalid, click Not Working.*"
         )
@@ -273,7 +317,7 @@ async def generate_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer(f"⚠️ {q_text} Stock Empty!", show_alert=True)
     conn.close()
 
-# 3. FEEDBACK
+# 5. FEEDBACK
 async def feedback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
@@ -288,7 +332,7 @@ async def feedback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['waiting_for_proof'] = f'report_{cost}'
         await query.message.edit_text("❌ **REPORT MODE**\nPlease send a screenshot of the error now.", parse_mode='Markdown')
 
-# 4. DEPOSIT INFO & METHOD SELECTION
+# 6. DEPOSIT INFO & METHOD SELECTION
 async def deposit_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "💸 **DEPOSIT & PRICING LIST**\n"
@@ -303,14 +347,14 @@ async def deposit_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = [
         [InlineKeyboardButton("🟣 Bkash", callback_data='method_bkash'), InlineKeyboardButton("🟠 Nagad", callback_data='method_nagad')],
         [InlineKeyboardButton("🟡 Binance Pay", callback_data='method_binance')],
-        [InlineKeyboardButton("🔙 Back", callback_data='profile')]
+        [InlineKeyboardButton("🔙 Back to Main Menu", callback_data='main_menu')]
     ]
     if update.callback_query: 
         await update.callback_query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
 
 async def payment_method_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    method = query.data.split('_')[1] # bkash, nagad, binance
+    method = query.data.split('_')[1] 
     
     context.user_data['deposit_method'] = method
     context.user_data['waiting_for_proof'] = 'deposit_ss'
@@ -331,7 +375,7 @@ async def payment_method_handler(update: Update, context: ContextTypes.DEFAULT_T
     kb = [[InlineKeyboardButton("🔙 Back to Deposit", callback_data='deposit_info')]]
     await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
 
-# 5. SCREENSHOT LOGS (MODIFIED FOR TRXID)
+# 7. SCREENSHOT LOGS 
 async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     photo = update.message.photo[-1].file_id
@@ -369,7 +413,7 @@ async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("⚠️ Please go to the Deposit menu and select a payment method first.")
 
-# 6. TEXT HANDLER FOR TRXID
+# 8. TEXT HANDLER FOR TRXID
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     state = context.user_data.get('waiting_for_proof')
     if state == 'deposit_trxid':
@@ -402,12 +446,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e: 
             pass
 
-        # Reset states
         context.user_data['waiting_for_proof'] = None
         context.user_data['deposit_photo'] = None
         context.user_data['deposit_method'] = None
 
-# 7. ADMIN ACTIONS
+# 9. ADMIN ACTIONS
 async def admin_log_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if not is_admin(query.from_user.id): return
@@ -444,7 +487,7 @@ async def admin_log_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     conn.close()
 
-# 8. ADMIN COMMANDS
+# 10. ADMIN COMMANDS
 async def add_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return 
     try:
@@ -535,7 +578,7 @@ async def admin_get_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ {q_type.upper()} Stock Empty!")
     conn.close()
 
-# 9. OTHER COMMANDS & FILE UPLOAD
+# 11. FILE UPLOAD & OTHER COMMANDS
 async def upload_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id): return
     file = await update.message.document.get_file()
@@ -643,20 +686,22 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "💡 **How to use:**\n"
         "1. Use /start to open the menu.\n"
         "2. Click 'Deposit / Buy' to check packages and pay.\n"
-        "3. Click 'Gen Normal CC' or 'Gen HQ CC' to get cards.\n\n"
+        "3. Click 'Open Store' to get cards.\n\n"
         f"👨‍💻 **Contact Admin:** [Ononto Hasan](tg://user?id={ADMIN_ID})\n"
         f"🌐 **Facebook:** [Official Profile]({FB_ID_LINK})"
     )
     await update.message.reply_text(help_text, parse_mode='Markdown')
 
-# MAIN
+# MAIN CALLBACK HANDLER
 async def btn_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     if q.data.startswith(('pay_', 'refund_', 'reject_')): await admin_log_actions(update, context)
+    elif q.data == 'store_menu': await store_menu(update, context)
     elif q.data in ['gen_normal', 'gen_hq']: await generate_account(update, context)
     elif q.data in ['addstock_normal', 'addstock_hq']: await process_stock_file(update, context)
-    elif q.data == 'profile': await start(update, context)
+    elif q.data in ['profile', 'main_menu']: await start(update, context)
     elif q.data == 'deposit_info': await deposit_info(update, context)
+    elif q.data == 'daily_bonus': await daily_bonus(update, context)
     elif q.data.startswith('method_'): await payment_method_handler(update, context)
     elif q.data == 'fb_working' or q.data.startswith('fb_not_working'): await feedback_handler(update, context)
     elif q.data == 'redeem_btn': await q.answer(); await q.message.reply_text("Type `/redeem CODE`")
@@ -677,7 +722,7 @@ def main():
     app.add_handler(CommandHandler("admin", add_admin_command))
     app.add_handler(MessageHandler(filters.Document.MimeType("text/plain"), upload_file))
     app.add_handler(MessageHandler(filters.PHOTO, handle_screenshot))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text)) # 👈 TrxID dhap er jonno add kora hoyeche
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(CallbackQueryHandler(btn_handler))
     app.run_polling()
 
